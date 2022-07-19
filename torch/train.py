@@ -1,6 +1,5 @@
 import sys
 import argparse
-from utils import exp_util, vis_util
 import open3d as o3d
 import structure.octree.unet_oct as oct
 import torch
@@ -35,7 +34,7 @@ def preturb_points(points,normals,voxel_size,num = 1):
 
 if __name__ == '__main__':
     layer = 5
-    model, args_model = net_util.load_unet_model("config/hyper_small.json",-1,use_nerf = False,layer = layer)
+    model, args_model = net_util.load_origin_unet_model("config/hyper_small.json",-1,use_nerf = False,layer = layer)
     
     exp = sys.argv[1]
     main_device = torch.device("cuda:0")
@@ -46,17 +45,16 @@ if __name__ == '__main__':
     h = 512
     w = 640
     normal_weight = 0.1
-    xyz_num = 2500 if is_normal or is_surface_normal else 7500
+    xyz_num = 2000 if is_normal or is_surface_normal else 7500
     snum = 400000 if is_normal or is_surface_normal else 3000000
     checkpoint_dir = Path("./pre-trained-weight/"+exp)
     os.makedirs(checkpoint_dir,exist_ok = True)
     shutil.copy("./train.py",os.path.join(checkpoint_dir,"train.py"))
-    f = open("/home/chx/chx_data/MatterPort3d/scenes_train.txt")
+    f = open("/home/chx/data_disk/MatterPort3D/scenes_train.txt")
     scenes = [line.strip() for line in f]
 
-    # train_dataset = NoisyOtherMatterPortDataset("/home/chx/ssd/MatterPort3d/",scenes,expand=True,voxel_size = voxel_size,snum = snum,layer = layer)
-    train_dataset = NoisyMatterPortDataset("/home/chx/ssd/chx_data/MatterPort/",scenes,split = 50,expand=True,voxel_size = voxel_size,snum = snum,layer = layer)
-   
+    train_dataset = NoisyOtherMatterPortDataset("/home/chx/ssd/MatterPort3d/",scenes,expand=True,voxel_size = voxel_size,snum = snum,layer = layer)
+    
     train_dataLoader = torch.utils.data.DataLoader(train_dataset,num_workers = 12,batch_size = 1,shuffle = True)
 
     dt_size = len(train_dataset)
@@ -97,7 +95,7 @@ if __name__ == '__main__':
             octree.bound_min = min_bound.to(main_device).squeeze(0)
             sdf_octree.bound_min = octree.bound_min
             sdf_octree.set_bound(bound)
-            
+
             with torch.no_grad():
                 torch.cuda.empty_cache()
                 rand_xyz,rand_sdf = sdf_octree.random_gt_sdf(gt_points,gt_normals,rand_num = 24,expand = True,xyz_num = xyz_num * 2)

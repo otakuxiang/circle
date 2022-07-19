@@ -164,7 +164,7 @@ def load_origin_unet_model(training_hyper_path: str, use_epoch: int = -1,use_ner
     if use_epoch == -1:
         args = exp_util.parse_config_json(training_hyper_path)
         model = Networks()
-        model.decoder = network.hierachicalDecoder.Model(1,args.network_specs["latent_size"],embeding = args.embed,dims = args.network_specs["dims"],if_xyz=args.network_specs["if_xyz"]).cuda()
+        model.decoder = network.hierachicalDecoder.Model(1,args.network_specs["latent_size"],dims = args.network_specs["dims"]).cuda()
         model.encoder = network.cnp_encoder.Model(**args.encoder_specs).cuda()
         if use_nerf:
             model.conv_kernels = network.sparseConvNet.SparseUNet(5,args.encoder_specs["latent_size"],use_rgb=True).cuda()
@@ -177,7 +177,7 @@ def load_origin_unet_model(training_hyper_path: str, use_epoch: int = -1,use_ner
     if str(training_hyper_path.parent) == "config":
         args = exp_util.parse_config_json(training_hyper_path)
         model = Networks()
-        model.decoder = network.hierachicalDecoder.Model(1,args.encoder_specs["latent_size"],embeding = args.embed,dims = args.network_specs["dims"]).cuda()
+        model.decoder = network.hierachicalDecoder.Model(1,args.encoder_specs["latent_size"],dims = args.network_specs["dims"]).cuda()
         model.encoder = network.cnp_encoder.Model(**args.encoder_specs).cuda()
         if use_nerf:
             model.conv_kernels = network.sparseConvNet.SparseUNet(layer,args.encoder_specs["latent_size"],use_rgb=True).cuda()

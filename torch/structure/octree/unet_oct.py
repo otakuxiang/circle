@@ -726,18 +726,10 @@ class unet_oct_cube():
        
         lower_layer_voxel_id = self.latent_vecs_left.get_reverse_id(self.used_latent_vecs_id)
         lower_voxel_input_id_valid = lower_layer_voxel_id
-        #3.快速对每一层进行“卷积”
-        #找到本次更新了的voxel上一层的voxel
-
-        #得到每个下层voxel对应的上层voxel
         lower_layer_voxel_xyz = self._unlinearize_id(lower_voxel_input_id_valid)
 
         lower_voxel_input_index = self.latent_vecs_left.get_idx(lower_voxel_input_id_valid)
         lower_voxel_input_latent = self.latent_vecs_left[lower_voxel_input_index]
-        # pdb.set_trace()
-        # lower_layer_voxel_xyz = torch.cat(
-        #     [torch.ones(lower_layer_voxel_xyz.size(0),1).cuda(),lower_layer_voxel_xyz],dim = 1
-        # )
         #input valid voxels location and features into sparse convolution
         if if_sloss:
             for idx,gt in enumerate(gt_s):
@@ -746,12 +738,8 @@ class unet_oct_cube():
                 else:
                     gt_s[idx] = gt.cuda()    
             self.model.conv_kernels.structure = gt_s
-        # print(lower_layer_voxel_xyz,lower_voxel_input_latent)
-        
         if rgb:
-            # s = time.time()
             sparse_corners ,sparse_corners_rgb, logits ,xyzs,cords,c_cords = self.model.conv_kernels([lower_layer_voxel_xyz,lower_voxel_input_latent])
-            # print(f"compute latent use {float(time.time() - s) * 1000} ms")
         else:
             sparse_corners , logits ,xyzs,cords,c_cords = self.model.conv_kernels([lower_layer_voxel_xyz,lower_voxel_input_latent])
            
@@ -766,22 +754,14 @@ class unet_oct_cube():
                 ttnum += xyz_mask.size(0) 
             s_losses = sum(s_losses) / ttnum
 
-        # mask = gt_s[0][:,xyz_mask[:,0],xyz_mask[:,1],xyz_mask[:,2]].cuda().long()
+
         occ_right_ids = self._linearize_id(cords).long()
-        # print(cords)
+
         self.occ_right_flag[:] = 0
         self.occ_right_flag[occ_right_ids] = 1
-        
-        # print(updated_upper_voxel_xyz.shape)
-        
-        # print(occ_right_ids.shape,updated_upper_voxel_xyz.shape)
-        # print(updated_upper_voxel_xyz.shape)
-        # updated_upper_voxel_xyz = dense_voxels.get_spatial_locations().cuda()[:,0:3]
-        # updated_upper_voxel_latent = dense_voxels.features
-        
-
+    
         updated_upper_voxel_id = self._linearize_id(c_cords,dim = self.corner_xyz).long()
-        # print(updated_upper_voxel_id.size(),lower_layer_voxel_id.size())
+        
         self.latent_vecs_right_corner.reset()
         self.latent_vecs_right_corner.allocate_block(updated_upper_voxel_id)
         idx = self.latent_vecs_right_corner.get_idx(updated_upper_voxel_id)
@@ -827,7 +807,7 @@ class unet_oct_cube():
         
         sdf_b = net_util.forward_model(self.model.decoder,max_sample = 2 ** 22,
             latent_input = latent_input,no_detach= True,
-            xyz_input = points_xyz_relative,layer = 0)[0]
+            xyz_input = points_xyz_relative)[0]
         
         src = sdf_b.view(-1)
         sdf_loss = (src - gt_sdf).abs().sum()
@@ -925,7 +905,7 @@ class unet_oct_cube():
             points_xyz_relative = points_xyz_relative[points_voxel_id_valid]
             gt_sdf = gt_sdf[points_voxel_id_valid].view(-1)
             if len(points_xyz_relative) == 0:
-                return None,None,None,None
+                return None,None
         #found latent in range [-1,1]
 
 
@@ -934,7 +914,7 @@ class unet_oct_cube():
         gt_sdf = gt_sdf[mask]
         sdf_b = net_util.forward_model(self.model.decoder,max_sample = 2 ** 22,
             latent_input = latent_input,no_detach= True,
-            xyz_input = points_xyz_relative,layer = 0)[0]
+            xyz_input = points_xyz_relative)[0]
         tar_sdf = gt_sdf.clamp(-1,1)
         # src_sdf = gradient_clamp(sdf_b.view(-1),-cd,cd)
         src_sdf = sdf_b.view(-1)
@@ -976,7 +956,7 @@ class unet_oct_cube():
         gt_normals = normals[mask,:]
         sdf_b = net_util.forward_model(self.model.decoder,max_sample = 2 ** 22,
             latent_input = latent_input,no_detach= True,
-            xyz_input = points_xyz_relative_perturb,layer = 0)[0]
+            xyz_input = points_xyz_relative_perturb)[0]
         sdf_b = sdf_b.view(-1,6)
 
         

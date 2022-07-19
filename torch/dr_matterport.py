@@ -4,11 +4,10 @@ import numpy as np
 from tqdm import tqdm
 import shutil,cv2,geoopt
 from system.ext import generate_rays
-from data_proc import data_utils
-from network.utility import StepLearningRateSchedule,adjust_learning_rate
+from utils import data_util,net_util
+from utils.net_util import StepLearningRateSchedule,adjust_learning_rate
 from network.diff_renderer import diff_renderer
 import structure.octree.unet_oct as oct
-from network import utility
 import math
 
 data_dir = "/home/chx/data_disk/MatterPort3d"
@@ -133,7 +132,7 @@ def get_inputs(scene,region):
         directions,ray_xys = generate_rays([h,w],
             p[0],p[1],p[2],p[3]    
         )
-        ray_od,target,_,_ = data_utils.gather_input([depth],directions,ray_xys,[p[0],p[1],p[2],p[3]])
+        ray_od,target,_,_ = data_util.gather_input([depth],directions,ray_xys,[p[0],p[1],p[2],p[3]])
         nan_mask = ~torch.isnan(target)
         ray_od = ray_od[nan_mask,:]
         target = target[nan_mask]
@@ -193,15 +192,15 @@ def update_octree(octree,pcd,result_path):
     return octree
 
 
-scene = "5ZKStnWn8Zo"
-region = "region6"
+scene = sys.argv[1]
+region = sys.argv[2]
 result_path = os.path.join(data_dir,"result",scene,region)
 os.makedirs(result_path,exist_ok=True)
 
 h,w = 512,640
 voxel_size = 0.05
-# model,_ = utility.load_unet_model("pre-trained-weight/noisy_clamp_descend/hyper_small.json",100000,use_nerf= False,layer=5)
-model,_ = utility.load_unet_model("pre-trained-weight/layer_5_small_decoder/hyper_small.json",100000,use_nerf= False,layer = 5)
+
+model,_ = net_util.load_origin_unet_model("pre-trained-weight/normal_1/hyper_small.json",100000,use_nerf= False,layer = 5)
 
 opt_left = False
 opt_pose = True
@@ -249,9 +248,7 @@ for epoch in range(num_epoch):
     dRs0 = torch.cat([R.unsqueeze(0) for R in dRs],dim=0).detach()
     dts0 = torch.cat(dts,dim=0).unsqueeze(-1).detach()
     trace = dRs0[:,0,0] + dRs0[:,1,1] + dRs0[:,2,2]
-    # final_pcd = get_input_cloud(point_parts,dRs,dts,Rs,ts,poses)
-    # o3d.io.write_point_cloud(os.path.join(result_path,f"input_opt_points_{epoch}.ply"),final_pcd)
-    # # print(dts0.view(-1).cpu().numpy().tolist(),(((trace - 1)/2).acos() * 180 / math.pi).view(-1).cpu().numpy().tolist())
+
     if torch.any(dts0 > 0.07) or torch.any(((trace - 1)/2).acos() * 180 / math.pi > 5):
         final_pcd = get_input_cloud(point_parts,dRs,dts,Rs,ts)
         o3d.io.write_point_cloud(os.path.join(result_path,f"opt_points_{count}.ply"),final_pcd)
@@ -265,8 +262,6 @@ for epoch in range(num_epoch):
             dts.append(torch.zeros(1,3).to(main_device).requires_grad_())
             optimizer_all,lr_schedules = get_optimizer(opt_left,opt_pose,octree,dRs,dts)
 
-    # final_pcd = o3d.geometry.PointCloud()
-
     for idx,[ray_od,target,pose_id] in enumerate(zip(ray_od_batch,target_batch,pose_id_batch)):
         try:
             pose_id = pose_id.cuda()
@@ -278,24 +273,12 @@ for epoch in range(num_epoch):
             adjust_learning_rate(lr_schedules, optimizer_all,it )
             dR = torch.stack(dRs) # N X 3 X 3
             dt = torch.cat(dts).unsqueeze(1) # N X 1 X 3
-            r = dR[pose_id] @ Rs[pose_id]
+            rot = dR[pose_id] @ Rs[pose_id]
             t = dt[pose_id] + ts[pose_id].permute(0,2,1)
-            # r = Rs[pose_id]
-            # t = ts[pose_id].permute(0,2,1)
-            # print(ray_od.shape)
-            ray = torch.cat([ray_od,t],dim = 1)
-            ray[:,0,:] = torch.matmul(r,ray[:,0,:].unsqueeze((-1))).squeeze(-1).contiguous()
+            ray_od[:,0,:] = (rot @ ray_od[:,0,:].clone().unsqueeze(-1)).squeeze(-1)
             
-            # if retain_ray is not None:
-            #     ray = torch.cat([ray,retain_ray],dim = 0)
-            #     targets = torch.cat([targets,retain_target],dim = 0)
-            # sys.exit(0)
-            # if epoch == 0 :
-            #     points = ray[:,1,:] + ray[:,0,:] * target.unsqueeze(-1)
-            #     pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points.detach().cpu().numpy()))
-            #     final_pcd += pcd
-            #     continue
-
+            ray = torch.cat([ray_od,t],dim = 1)
+            
             ray,target = octree.mask_rays(ray,target)
             
             if ray.size(0) == 0:
@@ -312,40 +295,23 @@ for epoch in range(num_epoch):
             ray = ray[zero_mask,:,:] 
             src = depth_img[zero_mask] 
             tar = target[zero_mask]
-            # points = ray[:,1,:] + ray[:,0,:] * src.unsqueeze(-1)
-            # pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points.detach().cpu().numpy()))
-            # final_pcd += pcd
             
             res = src - tar
             loss = res.abs().mean()
             loss.backward()
-            # print(dts[0].grad,dts[0].requires_grad)
-            optimizer_all.step()
-            # print(f"{epoch}\{idx}: {loss.detach().cpu().numpy()}")
 
-            # retain_mask = res.abs() > 0.01
-            # retain_ray =  ray[retain_mask,:,:]
-            # retain_target = tar[retain_mask]
+            optimizer_all.step()
+
             if opt_left:
                 octree.latent_vecs_right_corner.detach()
         except Exception as ex:
             traceback.print_exc()
             pdb.post_mortem(ex.__traceback__)
             sys.exit(0)
-    # o3d.io.write_point_cloud(os.path.join(result_path,f"opt_points.ply"),final_pcd)
 
             
     if epoch % 1 == 0:
         print(f"{epoch}\{20}: {loss.detach().cpu().numpy()}")
-            # mesh = octree.extract_whole_mesh_corner(6,use_rgb = False,max_n_triangles = 2 ** 22)
-            # mesh = mesh.merge_close_vertices(0.01)
-            # mesh = mesh.remove_degenerate_triangles()
-            # mesh.compute_vertex_normals()
-            # # o3d.io.write_triangle_mesh(os.path.join(scene_path,"our_mesh_opt.ply"),mesh)
-            # o3d.io.write_triangle_mesh(f"test/our_mesh_opt_{idx}.ply",mesh)
-# final_pcd = final_pcd.voxel_down_sample(0.01)   
-# o3d.io.write_point_cloud(os.path.join(result_path,"temp.ply"),final_pcd)
-
 mesh = octree.extract_whole_mesh_corner(6,use_rgb = False,max_n_triangles = 2 ** 22)
 mesh = mesh.merge_close_vertices(0.001)
 mesh = mesh.remove_degenerate_triangles()

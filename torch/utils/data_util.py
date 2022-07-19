@@ -614,12 +614,15 @@ class scene_cube:
         gt_sdf = gt_sdf / self.voxel_size
         gt_sdf = gt_sdf.view(-1)
         return pc, gt_sdf
+
+    def check_size(self, points):
+        points_xyz_aligned = points - self.bound_min.unsqueeze(0)
+        points_xyz_aligned = points_xyz_aligned / self.voxel_size
+        points_voxel_xyz = torch.floor(points_xyz_aligned).long()
+        points_voxel_ids = self._linearize_id(points_voxel_xyz,L = 0)
+        points_voxel_ids = torch.unique(points_voxel_ids)
+        if points_voxel_ids.size(0) <= 1:
+            return False
+        else:
+            return True
         
-def splitScene(data_path,scan_name):
-    pcd_path = os.path.join(data_path+scan_name,scan_name+"_mesh_pc_clean.ply")
-    pcd = o3d.io.read_point_cloud(pcd_path)
-    points=torch.from_numpy(np.asarray(pcd.points)).float().cuda()
-    normals=torch.from_numpy(np.asarray(pcd.normals)).float().cuda()
-    octree = scene_cube(layer_num = 5,voxel_size = 0.1,device = "cuda:0")
-    return octree.get_big_voxels(points,normals)
-    

@@ -3,6 +3,7 @@ torch/network/__pycache__
 torch/system/ext/__pycache__
 torch/structure/octree/__pycache__
 torch/utils/__pycache__
+torch/runs
 torch/run_sceneNN.py
 torch/dr_sceneNN.py
 torch/pre-trained-weight
