@@ -2,13 +2,14 @@ import math
 import torch
 import numpy as np
 import open3d as o3d
+from utils import net_util
 from torch._C import dtype
 from system.ext import unproject_depth, remove_radius_outlier, \
-    estimate_normals, filter_depth, compute_sdf
+    estimate_normals, filter_depth, sdf_from_points
 import cv2
 import os
 import random
-from data_proc.trainScannnetPcd import ScannetImageLoader
+from data.ScannetLoader import ScannetImageLoader
 from torch_scatter import scatter
 
 def clamp_select(tar,src,min,max):
@@ -393,6 +394,17 @@ class scene_cube:
         ]]
         self.relative_network_offset = torch.tensor([[0.5, 0.5, 0.5]], device=device, dtype=torch.float32)
 
+    def set_bound(self,bound):
+        # print("meter",bound)
+        bound = ((bound + self.voxel_size) / self.voxel_size // 32 + 1).astype(np.int32) * 32
+        # print("voxel",bound)
+        self.n_xyz_L=[]
+        self.n_xyz_L.append(list(bound))
+        for i in range(1,self.layer_num):
+            self.n_xyz_L.append(list(bound // (2**i)))
+            # print(self.n_xyz_L[i])
+
+
     def _linearize_id(self, xyz,L=0):
         """
         :param xyz (N, 3) long id
@@ -418,7 +430,7 @@ class scene_cube:
                             (layer_id // n_xyz[2]) % n_xyz[1],
                             layer_id % n_xyz[2]], dim=-1).int().view(-1,3)
     
-    def compute_gt_sdf(self,points,normals,voxel_resolution,expand = False):
+    def compute_gt_sdf(self,points,normals,voxel_resolution,expand = False,xyz_num = 2000):
         points_xyz_aligned = points - self.bound_min.unsqueeze(0)
         points_xyz_aligned = points_xyz_aligned / self.voxel_size
         if expand:
@@ -438,22 +450,37 @@ class scene_cube:
         # gathered_points_latent_idx = torch.cat(gathered_points_latent_idx)
         unique_ids = torch.unique(gathered_points_latent_idx)
         unique_xyz = self._unlinearize_id(unique_ids,L=0).long()
-        B = unique_ids.size(0)
+        # inds = np.array([i for i in range(unique_xyz.size(0))],dtype = np.int64)
+        # np.random.shuffle(inds)
+        # inds = torch.from_numpy(inds)
+        # end = min(xyz_num,unique_xyz.size(0))
+        inds = torch.randperm(unique_xyz.size(0),device="cuda:0")
+        end = min(xyz_num,unique_xyz.size(0))         
+        unique_xyz = unique_xyz[inds,:][0:end,:]
+        B = unique_xyz.size(0)
         # sample_a = (-(voxel_resolution // 2) * (1. / voxel_resolution)) 
         # sample_b = (1. + (voxel_resolution - 1) // 2 * (1. / voxel_resolution)) 
         # low_samples = net_util.get_samples(voxel_resolution, self.device, a=sample_a, b=sample_b) - \
         #                 self.relative_network_offset
         sample_a = 0
         sample_b = 1 - 1 / voxel_resolution
-        low_samples = net_util.get_samples(voxel_resolution, self.device, a=sample_a, b=sample_b) - 0.5
+        # sample_a = - 0.5
+        # sample_b = 1.5 - 1 / voxel_resolution
+        
+        low_samples = net_util.get_samples(voxel_resolution, self.device, a=sample_a, b=sample_b)
         low_samples = low_samples.unsqueeze(0).repeat(B, 1, 1)
-        low_center = unique_xyz.unsqueeze(1).repeat(1,voxel_resolution ** 3,1) + 0.5
+        # print(unique_xyz.shape)
+        low_center = unique_xyz.unsqueeze(1).repeat(1,voxel_resolution ** 3,1)
         # print(low_center.shape)
         pc = (low_center + low_samples).view(-1,3).contiguous()
         pc = pc * self.voxel_size + self.bound_min.unsqueeze(0)
         pc = torch.cat([pc,torch.zeros((pc.size(0),1)).cuda()],dim = 1).contiguous()
         gt_pc = torch.cat([points,torch.zeros((points.size(0),1)).cuda()],dim = 1).contiguous()
-        gt_sdf = compute_sdf(pc,gt_pc,normals,self.voxel_size,self.voxel_size * 2)
+        del low_center,low_samples
+        torch.cuda.empty_cache()
+        # gt_sdf = compute_sdf(pc,gt_pc,normals,self.voxel_size,self.voxel_size * 2)
+        gt_sdf = sdf_from_points(pc,gt_pc,normals,8,0.02)
+        gt_sdf = gt_sdf / self.voxel_size
         gt_sdf = gt_sdf.view(B,voxel_resolution,voxel_resolution,voxel_resolution)
         return unique_xyz,gt_sdf
 
@@ -475,16 +502,7 @@ class scene_cube:
                 points_group.append(points[mask,:])
                 normals_group.append(normals[mask,:])
         return points_group,normals_group
-    def check_size(self, points):
-        points_xyz_aligned = points - self.bound_min.unsqueeze(0)
-        points_xyz_aligned = points_xyz_aligned / self.voxel_size
-        points_voxel_xyz = torch.floor(points_xyz_aligned).long()
-        points_voxel_ids = self._linearize_id(points_voxel_xyz,L = 0)
-        points_voxel_ids = torch.unique(points_voxel_ids)
-        if points_voxel_ids.size(0) == 1:
-            return False
-        else:
-            return True
+
     def split_voxels(self,points):
         points_xyz_aligned = points - self.bound_min.unsqueeze(0)
         points_xyz_aligned = points_xyz_aligned / self.voxel_size
@@ -560,6 +578,42 @@ class scene_cube:
             s[layer_unique_xyz[:,0],layer_unique_xyz[:,1],layer_unique_xyz[:,2]] = 1
             strutures.append(s)
         return strutures
+    
+    def random_gt_sdf(self,points,normals,rand_num,expand = False,xyz_num = None):
+        points_xyz_aligned = points - self.bound_min.unsqueeze(0)
+        points_xyz_aligned = points_xyz_aligned / self.voxel_size
+        if expand:
+            gathered_points_latent_idx = []
+            for offset in self.integration_offsets:
+                points_offset_voxel_xyz = torch.ceil(points_xyz_aligned + offset) - 1
+                #不要出界
+                for dim in range(3):
+                    points_offset_voxel_xyz[:, dim].clamp_(0, self.n_xyz_L[0][dim] - 1)
+                #points相对对应voxel的单位长度位置
+                points_offset_voxel_id= self._linearize_id(points_offset_voxel_xyz).long()
+                gathered_points_latent_idx.append(points_offset_voxel_id)
+            gathered_points_latent_idx = torch.cat(gathered_points_latent_idx)
+        else:
+            gathered_points_latent_idx= self._linearize_id(torch.floor(points_xyz_aligned)).long()
+        
+        # gathered_points_latent_idx = torch.cat(gathered_points_latent_idx)
+        unique_ids = torch.unique(gathered_points_latent_idx)
+        unique_xyz = self._unlinearize_id(unique_ids,L=0).long()
+        if xyz_num is not None:
+            inds = torch.randperm(unique_xyz.size(0),device="cuda:0")
+            end = min(xyz_num,unique_xyz.size(0))        
+            inds = inds[:end] 
+            unique_xyz = unique_xyz[inds,:]
+        low_samples = torch.rand(unique_xyz.size(0),rand_num,3).cuda()
+        # print(unique_xyz.shape)
+        low_center = unique_xyz.unsqueeze(1).repeat(1,rand_num,1)
+        # print(low_center.shape)
+        pc = (low_center + low_samples).view(-1,3).contiguous()
+        pc = pc * self.voxel_size + self.bound_min.unsqueeze(0)
+        gt_sdf = sdf_from_points(pc,points,normals,8,0.02)
+        gt_sdf = gt_sdf / self.voxel_size
+        gt_sdf = gt_sdf.view(-1)
+        return pc, gt_sdf
         
 def splitScene(data_path,scan_name):
     pcd_path = os.path.join(data_path+scan_name,scan_name+"_mesh_pc_clean.ply")

@@ -12,7 +12,7 @@ import torch
 import sys
 import random
 import time
-from data.data_utils import voxel_down_sample,voxel_down_sample_with_rgb
+from util.data_util import voxel_down_sample,voxel_down_sample_with_rgb
 from torch.utils import data
 
 class MatterPort3dImageLoader(data.Dataset):

@@ -6,23 +6,21 @@ import structure.octree.unet_oct as oct
 import torch
 import time
 import numpy as np
-from network import utility
+from utils import net_util
 from torch.utils.tensorboard import SummaryWriter
-from data_proc.trainScannnetPcd import scene_cube
+from utils.data_util import scene_cube
 from pathlib import Path
 import random
 # from pytorch_memlab import profile,MemReporter
-from network.utility import StepLearningRateSchedule,adjust_learning_rate,CycleStepLearningRateSchedule,CycleStepDownLearningRateSchedule, \
-    StepCycleStepLearningRateSchedule,StepCycleStepDownLearningRateSchedule,ConstantLearningRateSchedule,StepLearningRateMinSchedule
+from utils.net_util import StepLearningRateSchedule,adjust_learning_rate
 import math
 import os
 import random
-from data_proc.trainSynthesisPcd import SynthesisDataset
-from data_proc.trainDataLoader import OtherMatterPortDataset,NoisyOtherMatterPortDataset
+from data.trainDataLoader import NoisyOtherMatterPortDataset,NoisyMatterPortDataset
 import pdb,traceback
 import shutil
 from network.diff_renderer import diff_renderer
-
+from system.ext import sdf_from_points
 
 def preturb_points(points,normals,voxel_size,num = 1):
     sdf = torch.randn((points.shape[0],num,1)).cuda() * 0.05
@@ -36,16 +34,11 @@ def preturb_points(points,normals,voxel_size,num = 1):
     return p_points,sdf,p_normals
 
 if __name__ == '__main__':
-    # model, args_model = utility.load_unet_model("pre-trained-weight/CycleStepDown/hyper.json",10000,1)
     layer = 5
-    # model, args_model = utility.load_unet_model("config/hyper_small.json",-1,use_nerf = False,layer = layer)
-    model, args_model = utility.load_unet_model("pre-trained-weight/normal_1/hyper_small.json",32000,use_nerf= False,layer = layer)
-
+    model, args_model = net_util.load_unet_model("config/hyper_small.json",-1,use_nerf = False,layer = layer)
     
     exp = sys.argv[1]
     main_device = torch.device("cuda:0")
-    is_batch = False
-    batch_size = 8
     voxel_size = 0.05
     is_normal = True
     is_surface_normal = True
@@ -57,11 +50,12 @@ if __name__ == '__main__':
     snum = 400000 if is_normal or is_surface_normal else 3000000
     checkpoint_dir = Path("./pre-trained-weight/"+exp)
     os.makedirs(checkpoint_dir,exist_ok = True)
-    shutil.copy("./train_other.py",os.path.join(checkpoint_dir,"train.py"))
+    shutil.copy("./train.py",os.path.join(checkpoint_dir,"train.py"))
     f = open("/home/chx/chx_data/MatterPort3d/scenes_train.txt")
     scenes = [line.strip() for line in f]
 
-    train_dataset = NoisyOtherMatterPortDataset("/home/chx/ssd/MatterPort3d/",scenes,expand=True,voxel_size = voxel_size,snum = snum,layer = layer)
+    # train_dataset = NoisyOtherMatterPortDataset("/home/chx/ssd/MatterPort3d/",scenes,expand=True,voxel_size = voxel_size,snum = snum,layer = layer)
+    train_dataset = NoisyMatterPortDataset("/home/chx/ssd/chx_data/MatterPort/",scenes,split = 50,expand=True,voxel_size = voxel_size,snum = snum,layer = layer)
    
     train_dataLoader = torch.utils.data.DataLoader(train_dataset,num_workers = 12,batch_size = 1,shuffle = True)
 
@@ -73,67 +67,59 @@ if __name__ == '__main__':
     lr_schedules.append(StepLearningRateSchedule(2e-3,10000,0.9))
     lr_schedules.append(StepLearningRateSchedule(2e-3,10000,0.9))
     lr_schedules.append(StepLearningRateSchedule(2e-3,10000,0.9))
-
-    # lr_schedules.append(StepLearningRateSchedule(5e-2,50,0.8))
     optimizer_all = torch.optim.Adam([ 
         { "params": model.conv_kernels.parameters(), "lr": lr_schedules[0].get_learning_rate(0)},
         { "params": model.encoder.parameters(), "lr": lr_schedules[1].get_learning_rate(0)},
         { "params": model.decoder.parameters(), "lr": lr_schedules[2].get_learning_rate(0) },
-        # { "params": model.rgb_decoder.parameters(), "lr": lr_schedules[3].get_learning_rate(0) }
     ])
-    # max_size = 900
     start = 0
     num_epoch = 200
     rgb_iter = 100000000
     renderer = diff_renderer(model,h,w,voxel_size,main_device,is_eval = False)
-    octree = oct.unet_oct_cube(model,main_device,latent_dim=29,layer_num = 4,voxel_size = voxel_size,lowest = 7,renderer=renderer)
     sdf_octree = scene_cube(layer_num = 4,voxel_size = voxel_size,device = "cuda:0",lowest = 7)
 
-    # cd_schedule = StepLearningRateMinSchedule(1,20000,0.9,0.2)
     for epoch in range(start,num_epoch):
-        for idx,[points,normals,structures,gt_points,gt_normals,min_bound] in enumerate(train_dataLoader):
+        for idx,[points,normals,structures,gt_points,gt_normals,min_bound,bound] in enumerate(train_dataLoader):
 
             if points.nelement() == 0 :
                 continue
             
-            it = idx + epoch * dt_size + start_idx
+            it = idx + epoch * dt_size
             # clamp_dist = cd_schedule.get_learning_rate(it)
             clamp_dist = 1
             points = points.to(main_device).squeeze(0)
             normals = normals.to(main_device).squeeze(0)
             gt_points = gt_points.to(main_device).squeeze(0)
             gt_normals = gt_normals.to(main_device).squeeze(0)
+            bound = bound.squeeze(0).numpy()
 
-        
+            octree = oct.unet_oct_cube(model,main_device,bound = bound,latent_dim=29,layer_num = 4,voxel_size = voxel_size,lowest = 7,renderer=renderer)
             octree.bound_min = min_bound.to(main_device).squeeze(0)
             sdf_octree.bound_min = octree.bound_min
+            sdf_octree.set_bound(bound)
             
             with torch.no_grad():
-                
                 torch.cuda.empty_cache()
-                unique_xyz,sdf = sdf_octree.compute_gt_sdf(gt_points,gt_normals,voxel_resolution,expand = True)
-                inds = np.array([i for i in range(unique_xyz.size(0))],dtype = np.int64)
-                np.random.shuffle(inds)
-                inds = torch.from_numpy(inds)
-                end = min(xyz_num,unique_xyz.size(0))
-                xyz_small = unique_xyz[inds,:][0:end,:]
-                sdf_small = sdf[inds,:][0:end,:]
-                # if is_surface_normal:
+                rand_xyz,rand_sdf = sdf_octree.random_gt_sdf(gt_points,gt_normals,rand_num = 24,expand = True,xyz_num = xyz_num * 2)
                 p_points,gt_sdf,p_normals = preturb_points(gt_points,gt_normals,voxel_size,5)
-                inds = np.array([i for i in range(p_points.size(0))],dtype = np.int64)
                 end = min(snum,p_points.size(0))
-                np.random.shuffle(inds)
-                inds = torch.from_numpy(inds)
-                surface_points = p_points[inds,:][:end,:]
-                surface_normals = p_normals[inds,:][:end,:]
-                surface_sdfs = gt_sdf[inds,:][:end,:]
-                # print(sdf_small.shape)
-            del unique_xyz,sdf,gt_points,gt_normals
-            
-            ep = 1
-            octree.is_batch = is_batch
-            octree.batch_size = batch_size
+                inds = torch.randperm(p_points.size(0),device="cuda:0")
+                inds = inds[:end]
+                surface_points = p_points[inds,:]
+                surface_normals = p_normals[inds,:]
+                gt_sdf = sdf_from_points(surface_points,gt_points,gt_normals,8,0.02)
+                gt_sdf = gt_sdf / voxel_size
 
+                inds = torch.randperm(gt_points.size(0),device="cuda:0")
+                end = min(snum,gt_points.size(0))
+                inds = inds[:end]
+                gt_points = gt_points[inds,:]
+                gt_normals = gt_normals[inds,:]
+                surface_points = torch.cat([surface_points,gt_points])
+                surface_normals = torch.cat([surface_normals,gt_normals])
+                surface_sdfs = torch.cat([gt_sdf,torch.zeros(gt_points.size(0)).cuda()])
+
+    
             try:
                 adjust_learning_rate(lr_schedules, optimizer_all,it)
                 optimizer_all.zero_grad()
@@ -141,33 +127,27 @@ if __name__ == '__main__':
                 octree.update_lowest(points,normals,required_grad = True)
                 loss4 = octree.update_right_corner(if_sloss=True,gt_s=structures,rgb = False)
                     
-                # if it > rgb_iter:
-                #     torch.cuda.empty_cache()
-                    
-                #     loss3,rnum = octree.compute_render_loss(targets_small[:,3],ray_ods_small,use_rgb = False)
-                #     loss3 = loss3 / rnum
                 loss2 = octree.compute_corner_reg_loss()
                 if is_surface_normal:
-                
-                    sdf_loss,normal_loss,normal_reg_loss,l1 = octree.compute_surface_loss(surface_points,surface_sdfs,surface_normals,cd = clamp_dist,clamp_mode="o")
-                    loss1,nrl,l0 = octree.compute_corner_sample_loss(xyz_small,sdf_small,voxel_resolution,clamp_dist,if_normal = is_normal,clamp_mode="o")
-                    
-                    normal_reg_loss = (nrl + normal_reg_loss) / (l1 + l0)  
+                    sdf_loss,l1 = octree.compute_surface_loss(surface_points,surface_sdfs,cd = clamp_dist,clamp_mode="o")
+                    normal_loss,normal_reg_loss,l2 = octree.compute_normal_loss(surface_points,surface_normals)
+                    if sdf_loss is None:
+                        del octree
+                        optimizer_all.zero_grad()
+                        continue
+                    loss1,l0 = octree.compute_sdf_loss_corner(rand_xyz,rand_sdf)
+                    if loss1 is None:
+                        del octree
+                        optimizer_all.zero_grad()
+                        continue
+                    normal_reg_loss = normal_reg_loss / l2
                     sdf_loss = (loss1 + sdf_loss) / (l1 + l0)
-                    normal_loss = normal_loss / l1
-                    loss = loss2 * 1e-4 + loss4 + sdf_loss + normal_weight * (normal_loss + normal_reg_loss)
-                else:
-                    loss1,l0 = octree.compute_corner_sample_loss(xyz_small,sdf_small,voxel_resolution,clamp_dist,if_normal = False)
-                    loss5,l1 = octree.compute_sdf_loss_corner(p_points,gt_sdf,clamp_dist,if_normal = False)
-                    sdf_loss = (loss1+loss5) / (l1+l0)
-                    loss = loss2 * 1e-4 + loss4 + sdf_loss
-
-                # if it > rgb_iter:
-                #     loss = loss + loss3        
+                    normal_loss = normal_loss / l2
+                    loss = loss2 * 1e-4 + loss4 + sdf_loss + normal_weight * ( normal_loss + normal_reg_loss) 
+ 
                 loss.backward()
 
 
-            
                 optimizer_all.step() 
                 octree.intermediate_detach()
             except oct.BoundError as be:

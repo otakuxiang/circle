@@ -8,10 +8,9 @@ from system.ext import unproject_depth, remove_radius_outlier, \
 import time
 import torch
 import sys
-import structure.octree.oct as oct
 from concurrent.futures import ThreadPoolExecutor,ProcessPoolExecutor, as_completed
 import random
-import network.utility as net_util
+import utils.net_util as net_util
 
 class ScannetImageLoader: 
     def __init__(self,sequence_path,config_path,frame_list = [],w = 640,h = 480):

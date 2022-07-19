@@ -1,4 +1,8 @@
-data/__pycache__
-network/__pycache__
-system/ext/__pycache__
-
+torch/data/__pycache__
+torch/network/__pycache__
+torch/system/ext/__pycache__
+torch/structure/octree/__pycache__
+torch/utils/__pycache__
+torch/run_sceneNN.py
+torch/dr_sceneNN.py
+torch/pre-trained-weight

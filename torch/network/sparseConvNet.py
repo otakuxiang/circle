@@ -22,7 +22,6 @@ class InstanceNormReLU(nn.Module):
 class SparseUNet(nn.Module):
     def __init__(self,layer_num,latent_dim):
         super().__init__()
-        self.use_rgb = use_rgb
         encoders = []
         predictors = []
         dense_convertors = []
@@ -87,7 +86,6 @@ class SparseUNet(nn.Module):
         l = len(self.decoders)
         for i in range(len(self.decoders)): 
             x = self.dense_convertors[i](x)
-            print(x.shape,x.nelement() * 4 / 1024 /1024)
             cords = self.subdivide(cords)
             skip = self.dense_convertors[i + 1](sparse_feature[i])
 

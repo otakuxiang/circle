@@ -5,7 +5,7 @@ from network.base_net import SharedMLP
 
 
 class Model(nn.Module):
-    def __init__(self, bn, latent_size, per_point_feat, mode='cnp', aggr_mode='max',embed = False):
+    def __init__(self, bn, latent_size, per_point_feat, mode='cnp', aggr_mode='max'):
         super().__init__()
         assert mode in ['train', 'cnp']
         self.mode = mode
@@ -32,10 +32,6 @@ class Model(nn.Module):
             return r
         elif self.mode == 'cnp':
             # B x 3 -> B x latent_size
-            if self.is_embed:
-                xyz = (x[:,0:3] - 0.5) * 2
-                xyz = self.embed_fn(xyz)
-                x = torch.cat([xyz,x[:,3:]],dim = 1)
             x = x.unsqueeze(-1)     # (B, 3, 1)
             x = self.mlp(x)         # (B, L, 1)
             return x.squeeze(-1)

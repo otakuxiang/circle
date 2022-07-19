@@ -5,7 +5,7 @@ import torch.nn as nn
 from system.ext import sparse_ray_intersection,generate_rays
 from torch.autograd import Function
 import numpy as np
-import network.utility as net_util
+import utils.net_util as net_util
 import time
 class diff_renderer:
     def __init__(self,model,img_h : int,img_w : int,
@@ -96,7 +96,7 @@ class diff_renderer:
                         
             sdfs = net_util.forward_model(self.model.decoder,max_sample = 2 ** 25,
                 latent_input = latent_input,
-                xyz_input = points_relative,layer = 0)[0]
+                xyz_input = points_relative)[0]
             
             # update current_ds
 
@@ -198,7 +198,7 @@ class diff_renderer:
                         
             sdfs = net_util.forward_model(self.model.decoder,max_sample = 2 ** 25,
                 latent_input = latent_input,
-                xyz_input = points_relative,layer = 0)[0]
+                xyz_input = points_relative)[0]
             
             # update current_ds
 
@@ -261,7 +261,7 @@ class diff_renderer:
 
         sdf_detach = net_util.forward_model(self.model.decoder,max_sample = 2 ** 23,
             latent_input = latent_input,no_detach=True,
-            xyz_input = points_relative_0,layer = 0)[0]
+            xyz_input = points_relative_0)[0]
         surface_grad = torch.autograd.grad(sdf_detach, [points_relative_0], grad_outputs=torch.ones_like(sdf_detach),
                                         retain_graph=True, create_graph=True)[0]
         
@@ -269,7 +269,7 @@ class diff_renderer:
         latent_input,_ = self.octree.trilinear_interpolate(points,voxels_xyz)
         sdf_no_detach = net_util.forward_model(self.model.decoder,max_sample = 2 ** 23,
             latent_input = latent_input,no_detach=True,
-            xyz_input = points_relative,layer = 0)[0]
+            xyz_input = points_relative)[0]
         directions_0 = directions[ray_id].detach()
         
         surface_points_dot = torch.bmm(surface_grad.view(-1,1,3),directions_0.view(-1,3,1)).squeeze(-1)
@@ -298,7 +298,7 @@ class diff_renderer:
             latent_input,_ = self.octree.trilinear_interpolate(points,voxels_xyz)
             sdfs = net_util.forward_model(self.model.decoder,max_sample = 2 ** 20,
                 latent_input = latent_input,no_detach=True,
-                xyz_input = points_relative,layer = 0)[0]
+                xyz_input = points_relative)[0]
             
             sdf_mask = (sdfs.abs() > self.threshold).squeeze(-1)
             all_sdfs[unfinished_mask,:] = sdfs

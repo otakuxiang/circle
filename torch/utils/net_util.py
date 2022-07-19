@@ -9,9 +9,9 @@ import importlib
 import os
 import network.sparseConvNet
 import network.sparseConvNetAlter
+
 import network.hierachicalDecoder
 import network.cnp_encoder
-import network.nerf
 from system.ext import groupby_sum_backward,groupby_sum
 from torch.autograd import Function
 class Networks():
@@ -30,13 +30,77 @@ class Networks():
     def enc_eval(self):
         self.encoder.eval()
 
+def load_model(training_hyper_path: str, use_epoch: int = -1,layer = None):
+    """
+    Load in the model and hypers used.
+    :param training_hyper_path:
+    :param use_epoch: if -1, will load the latest model.
+    :return: Networks
+    """
+    training_hyper_path = Path(training_hyper_path)
+    # print(training_hyper_path.parent)
+    if str(training_hyper_path.parent) == "config":
+        args = exp_util.parse_config_json(training_hyper_path)
+        model = Networks()
+        model.decoder = network.hierachicalDecoder.Model(8,29,embeding=args.encoder_specs['embed']).cuda()
+        model.conv_kernels = network.sparseConvNetAlter.HierachicalSparseConv(8,29).cuda()
+        model.encoder = network.cnp_encoder.Model(**args.encoder_specs).cuda()
+        if use_epoch == -1:
+            print("there")
+            return model, args
+        state_dict = torch.load("config/encoder_500.pth.tar")["model_state"]
+        model.encoder.load_state_dict(state_dict)
+        state_dict = torch.load("config/model_500.pth.tar")["model_state"]
+        model.decoder.base_decoder.load_state_dict(state_dict)
+
+       
+
+        # print("there")
+        return model, args
+    if training_hyper_path.name.split(".")[-1] == "json":
+        args = exp_util.parse_config_json(training_hyper_path)
+        exp_dir = training_hyper_path.parent
+        model_paths = exp_dir.glob('model_*.pth.tar')
+        model_paths = {int(str(t).split("model_")[-1].split(".pth")[0]): t for t in model_paths}
+        # assert use_epoch in model_paths.keys(), f"{use_epoch} not found in {sorted(list(model_paths.keys()))}"
+        args.checkpoint = os.path.join(exp_dir,f"model_{use_epoch}.pth.tar")
+    else:
+        args = exp_util.parse_config_yaml(Path('configs/training_defaults.yaml'))
+        args = exp_util.parse_config_yaml(training_hyper_path, args)
+        logging.warning("Loaded a un-initialized model.")
+        args.checkpoint = None
+
+    model = Networks()
+    model.decoder = network.hierachicalDecoder.Model(8,29).cuda()
+    model.conv_kernels = network.sparseConvNetAlter.HierachicalSparseConv(8,29).cuda()
+    # if args.encoder_name is not None:
+    #     encoder_module = importlib.import_module("network." + args.encoder_name)
+    model.encoder = network.cnp_encoder.Model(**args.encoder_specs).cuda()
+    if args.checkpoint is not None:
+        if layer is not None:
+            ckp = torch.load(Path(args.checkpoint).parent / f"model_{layer}_{use_epoch}.pth.tar")
+        else:
+            ckp = torch.load(Path(args.checkpoint).parent / f"model_{use_epoch}.pth.tar")
+        if model.decoder is not None:
+            if "decoder_state" in ckp.keys():
+                # model.decoder.load_state_dict(state_dict)
+                model.decoder.load_state_dict(ckp["decoder_state"])
+            
+        if model.encoder is not None:
+            if "encoder_state" in ckp.keys():
+                model.encoder.load_state_dict(ckp["encoder_state"])
+        if model.conv_kernels is not None:
+            if "sparse_state" in ckp.keys():
+                model.conv_kernels.load_state_dict(ckp["sparse_state"])
+        
+    return model, args
 
 def load_unet_model(training_hyper_path: str, use_epoch: int = -1,use_nerf = False,layer = 4):
     training_hyper_path = Path(training_hyper_path)
     if use_epoch == -1:
         args = exp_util.parse_config_json(training_hyper_path)
         model = Networks()
-        model.decoder = network.hierachicalDecoder.Model(1,args.encoder_specs["latent_size"],embeding = args.embed,dims = args.network_specs["dims"]).cuda()
+        model.decoder = network.hierachicalDecoder.Model(1,args.network_specs["latent_size"],embeding = args.embed,dims = args.network_specs["dims"],if_xyz=args.network_specs["if_xyz"]).cuda()
         model.encoder = network.cnp_encoder.Model(**args.encoder_specs).cuda()
         if use_nerf:
             model.conv_kernels = network.sparseConvNetAlter.SparseUNet(5,args.encoder_specs["latent_size"],use_rgb=True).cuda()
@@ -70,7 +134,7 @@ def load_unet_model(training_hyper_path: str, use_epoch: int = -1,use_nerf = Fal
         # assert use_epoch in model_paths.keys(), f"{use_epoch} not found in {sorted(list(model_paths.keys()))}"
         args.checkpoint = os.path.join(exp_dir,f"model_{use_epoch}.pth.tar")
     model = Networks()
-    model.decoder = network.hierachicalDecoder.Model(1,args.encoder_specs["latent_size"],embeding = args.embed,dims = args.network_specs["dims"]).cuda()
+    model.decoder = network.hierachicalDecoder.Model(1,args.network_specs["latent_size"],embeding = args.embed,dims = args.network_specs["dims"],if_xyz=args.network_specs["if_xyz"]).cuda()
     if use_nerf:
         model.conv_kernels = network.sparseConvNetAlter.SparseUNet(layer,args.encoder_specs["latent_size"],use_rgb=True).cuda()
         model.rgb_decoder = network.nerf.NeRF(D = args.nerf["D"],W=args.nerf["W"],input_ch=args.color_latent_dim + 3,output_ch=3,skips=args.nerf["skips"])
@@ -95,6 +159,90 @@ def load_unet_model(training_hyper_path: str, use_epoch: int = -1,use_nerf = Fal
     return model, args
 
 
+def load_origin_unet_model(training_hyper_path: str, use_epoch: int = -1,use_nerf = False,layer = 4):
+    training_hyper_path = Path(training_hyper_path)
+    if use_epoch == -1:
+        args = exp_util.parse_config_json(training_hyper_path)
+        model = Networks()
+        model.decoder = network.hierachicalDecoder.Model(1,args.network_specs["latent_size"],embeding = args.embed,dims = args.network_specs["dims"],if_xyz=args.network_specs["if_xyz"]).cuda()
+        model.encoder = network.cnp_encoder.Model(**args.encoder_specs).cuda()
+        if use_nerf:
+            model.conv_kernels = network.sparseConvNet.SparseUNet(5,args.encoder_specs["latent_size"],use_rgb=True).cuda()
+            model.rgb_decoder = network.nerf.NeRF(D = 4,W=32,input_ch=args.color_latent_dim + 3,output_ch=3,skips=[2])
+        else:
+            model.conv_kernels = network.sparseConvNet.SparseUNet(layer,args.encoder_specs["latent_size"]).cuda()
+        return model, args
+
+    # print(training_hyper_path.parent)
+    if str(training_hyper_path.parent) == "config":
+        args = exp_util.parse_config_json(training_hyper_path)
+        model = Networks()
+        model.decoder = network.hierachicalDecoder.Model(1,args.encoder_specs["latent_size"],embeding = args.embed,dims = args.network_specs["dims"]).cuda()
+        model.encoder = network.cnp_encoder.Model(**args.encoder_specs).cuda()
+        if use_nerf:
+            model.conv_kernels = network.sparseConvNet.SparseUNet(layer,args.encoder_specs["latent_size"],use_rgb=True).cuda()
+            model.rgb_decoder = network.nerf.NeRF(D = 4,W=32,input_ch=args.color_latent_dim + 3,output_ch=3,skips=[2])
+        else:
+            model.conv_kernels = network.sparseConvNet.SparseUNet(layer,args.encoder_specs["latent_size"]).cuda()
+
+        state_dict = torch.load("config/encoder_500.pth.tar")["model_state"]
+        model.encoder.load_state_dict(state_dict)
+        state_dict = torch.load("config/model_500.pth.tar")["model_state"]
+        model.decoder.base_decoder.load_state_dict(state_dict)
+        return model, args
+    if training_hyper_path.name.split(".")[-1] == "json":
+        args = exp_util.parse_config_json(training_hyper_path)
+        exp_dir = training_hyper_path.parent
+        model_paths = exp_dir.glob('model_*.pth.tar')
+        model_paths = {int(str(t).split("model_")[-1].split(".pth")[0]): t for t in model_paths}
+        # assert use_epoch in model_paths.keys(), f"{use_epoch} not found in {sorted(list(model_paths.keys()))}"
+        args.checkpoint = os.path.join(exp_dir,f"model_{use_epoch}.pth.tar")
+    model = Networks()
+    model.decoder = network.hierachicalDecoder.Model(1,args.network_specs["latent_size"],dims = args.network_specs["dims"]).cuda()
+    
+    model.conv_kernels = network.sparseConvNet.SparseUNet(layer,args.encoder_specs["latent_size"]).cuda()
+    model.encoder = network.cnp_encoder.Model(**args.encoder_specs).cuda()
+    if args.checkpoint is not None:
+        ckp = torch.load(Path(args.checkpoint).parent / f"model_{use_epoch}.pth.tar")
+        if model.decoder is not None:
+            if "decoder_state" in ckp.keys():
+                # model.decoder.load_state_dict(state_dict)
+                model.decoder.load_state_dict(ckp["decoder_state"])
+        if model.encoder is not None:
+            if "encoder_state" in ckp.keys():
+                model.encoder.load_state_dict(ckp["encoder_state"])
+        if model.conv_kernels is not None:
+            if "sparse_state" in ckp.keys():
+                model.conv_kernels.load_state_dict(ckp["sparse_state"])
+        if model.rgb_decoder is not None:
+            if "nerf_state" in ckp.keys():
+                model.rgb_decoder.load_state_dict(ckp["nerf_state"])
+    return model, args
+
+
+def load_latent_vecs(training_hyper_path: str, use_epoch: int = -1):
+    """
+    Load in the trained latent vectors.
+    :param training_hyper_path:
+    :param use_epoch: if -1, will load the latest model.
+    :return:
+    """
+    training_hyper_path = Path(training_hyper_path)
+
+    assert training_hyper_path.name.split(".")[-1] == "json"
+
+    exp_dir = training_hyper_path.parent
+    model_paths = exp_dir.glob('training_*.pth.tar')
+    model_paths = {int(str(t).split("training_")[-1].split(".pth")[0]): t for t in model_paths}
+    assert use_epoch in model_paths.keys(), f"{use_epoch} not found in {list(model_paths.keys())}"
+
+    ckpt_path = model_paths[use_epoch]
+    latent_vecs = torch.load(ckpt_path)["latent_vec"]
+
+    if isinstance(latent_vecs, torch.Tensor):
+        return latent_vecs.detach()
+    else:
+        return latent_vecs['weight']
 
 
 # @profile
@@ -103,7 +251,7 @@ def forward_model(model: nn.Module, network_input: torch.Tensor = None,
                   xyz_input: torch.Tensor = None,
                   loss_func=None, max_sample: int = 2 ** 32,
                   no_detach: bool = False,
-                  verbose: bool = True,layer:int = 0):
+                  verbose: bool = True):
     """
     Forward the neural network model. (if loss_func is not None, will also compute the gradient w.r.t. the loss)
     Either network_input or (latent_input, xyz_input) tuple could be provided.
@@ -142,22 +290,17 @@ def forward_model(model: nn.Module, network_input: torch.Tensor = None,
         # (N, 1)
         if combine == True:
             input_xyz_chunk = xyz_input[chunk_i]
-            input_chunk = torch.cat((input_latent_chunk.cuda(), input_xyz_chunk), dim=1)
+            input_chunk = torch.cat((input_latent_chunk, input_xyz_chunk), dim=1)
         else:
             input_chunk = input_latent_chunk
-        if xyz_input is not None and not layer is None:
-            network_output = model(input_chunk,layer)
-        elif layer is None:
-            network_output = model(input_chunk)
-        else:
-            network_output = model(input_chunk)
+
+        network_output = model(input_chunk)
 
         if not isinstance(network_output, tuple):
             network_output = [network_output, ]
 
         if chunk_i == 0:
             output_chunks = [[] for _ in range(len(network_output))]
-            #print('zzr')
         if loss_func is not None:
             # The 'graph' in pytorch stores how the final variable is computed to its current form.
             # Under normal situations, we can delete this path right after the gradient is computed because the path
@@ -177,12 +320,9 @@ def forward_model(model: nn.Module, network_input: torch.Tensor = None,
             network_output = [t.detach() for t in network_output]
 
         for payload_i, payload in enumerate(network_output):
-            output_chunks[payload_i].append(payload.cpu())
+            output_chunks[payload_i].append(payload)
         head += network_output[0].size(0)
-    output_chunks = [torch.cat(t, dim=0).cuda() for t in output_chunks]
-    #print(len(output_chunks))
-    #print(output_chunks[0].shape)
-    #print(output_chunks[1].shape)
+    output_chunks = [torch.cat(t, dim=0) for t in output_chunks]
     return output_chunks
 
 
@@ -207,26 +347,6 @@ def get_samples(r: int, device: torch.device, a: float = 0.0, b: float = None):
     samples[:, 2] = (overall_index % r) * vsize + a
     return samples
 
-# def get_samples_interp(r: int, device: torch.device, a: float = 0.0, b: float = None):
-#     """
-#     Get samples within a cube, the voxel size is (b-a)/(r-1). range is from [a, b]
-#     :param r: num samples
-#     :param a: bound min
-#     :param b: bound max
-#     :return: (r*r*r, 3)
-#     """
-#     overall_index = torch.arange(0, r ** 3, 1, device=device, dtype=torch.long)
-#     r = int(r)
-
-#     if b is None:
-#         b = 1. - 1. / r
-
-#     vsize = (b - a) / (r - 1)
-#     samples = torch.zeros(r ** 3, 3, device=device, dtype=torch.float32)
-#     samples[:, 0] = (overall_index // (r * r)) * vsize + a
-#     samples[:, 1] = ((overall_index // r) % r) * vsize + a
-#     samples[:, 2] = (overall_index % r) * vsize + a
-#     return samples
 
 
 
@@ -310,24 +430,6 @@ class GroupSumFunction(Function):
 
 
 
-def fix_weight_norm_pickle(net: torch.nn.Module):
-    from torch.nn.utils.weight_norm import WeightNorm
-    for mdl in net.modules():
-        fix_name = None
-        if isinstance(mdl, torch.nn.Linear):
-            for k, hook in mdl._forward_pre_hooks.items():
-                if isinstance(hook, WeightNorm):
-                    fix_name = hook.name
-        if fix_name is not None:
-            delattr(mdl, fix_name)
-
-class ConstantLearningRateSchedule():
-    def __init__(self, initial):
-        self.initial = initial
-        
-    def get_learning_rate(self, epoch):
-        return self.initial 
-
 class StepLearningRateSchedule():
     def __init__(self, initial, interval, factor):
         self.initial = initial
@@ -336,107 +438,6 @@ class StepLearningRateSchedule():
 
     def get_learning_rate(self, epoch):
         return self.initial * (self.factor ** (epoch // self.interval))
-
-class StepLearningRateMinSchedule():
-    def __init__(self, initial, interval, factor,min_lr):
-        self.initial = initial
-        self.interval = interval
-        self.factor = factor
-        self.min = min_lr
-    def get_learning_rate(self, epoch):
-        lr = max(self.initial * (self.factor ** (epoch // self.interval)),self.min)
-        return lr
-
-
-def adjust_learning_rate(lr_schedules, optimizer, epoch):
-    for i, param_group in enumerate(optimizer.param_groups):
-        param_group["lr"] = lr_schedules[i].get_learning_rate(epoch)
-
-class CycleStepLearningRateSchedule():
-    def __init__(self, max_lr , min_lr , Time ,step):
-        self.max_lr = max_lr
-        self.Time = Time
-        self.min_lr = min_lr
-        self.step = step
-        self.interval = self.Time / 2 // step
-        self.frac = (max_lr - min_lr) / step
-    def get_learning_rate(self, epoch):
-        Time = self.Time
-        temp = epoch % Time
-        if temp < Time/2:
-            ss = temp // self.interval
-            lr = self.max_lr - ss * self.frac 
-        else:
-            ss = (temp - Time / 2) // self.interval
-            lr = self.min_lr + ss * self.frac
-        return lr
-
-class CycleStepDownLearningRateSchedule():
-    def __init__(self, max_lr , min_lr , Time ,step):
-        self.max_lr = max_lr
-        self.Time = Time
-        self.min_lr = min_lr
-        self.step = step
-        self.interval = self.Time // step
-        self.frac = (max_lr - min_lr) / step
-
-    def get_learning_rate(self, epoch):
-        Time = self.Time
-        temp = epoch % Time
-        ss = temp // self.interval
-        lr = self.max_lr - ss * self.frac 
-        return lr
-
-class StepCycleStepLearningRateSchedule():
-    def __init__(self, max_lr , min_lr , Time, interval, factor,step):
-        self.max_lr = max_lr
-        self.Time = Time
-        self.min_lr = min_lr
-        self.interval = interval
-        self.factor = factor
-        self.step = step
-        
-    def get_learning_rate(self, epoch):
-        Time = self.Time
-        temp = epoch % Time
-        ct = epoch // Time
-        max_lr = max(self.max_lr * (self.factor ** (ct // self.interval)) , self.min_lr)
-        interval_cycle = self.Time / 2 // self.step
-        frac = (max_lr - self.min_lr) / self.step
-        if temp < Time/2:
-            ss = temp // interval_cycle
-            lr = max_lr - ss * frac
-        else:
-            ss = (temp - Time / 2) // interval_cycle
-            lr = self.min_lr + ss * frac
-        return lr
-    def get_max_lr(self,epoch):
-        Time = self.Time
-        temp = epoch % Time
-        ct = epoch // Time
-        max_lr = max(self.max_lr * (self.factor ** (ct // self.interval)) , self.min_lr)
-        return max_lr
-class StepCycleStepDownLearningRateSchedule():
-    def __init__(self, max_lr , min_lr , Time, interval, factor,step):
-        self.max_lr = max_lr
-        self.Time = Time
-        self.min_lr = min_lr
-        self.interval = interval
-        self.factor = factor
-        self.step = step
-
-    def get_learning_rate(self, epoch):
-        Time = self.Time
-        temp = epoch % Time
-        ct = epoch // Time
-        max_lr = max(self.max_lr * (self.factor ** (ct // self.interval)) , self.min_lr)
-        interval_cycle = self.Time // self.step
-        frac = (max_lr - self.min_lr) / self.step
-        ss = temp // interval_cycle
-        lr = max_lr - ss * frac
-        return lr
-
-
 
 
 

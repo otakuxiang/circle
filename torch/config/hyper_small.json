@@ -1,0 +1,68 @@
+{
+    "embed":false,
+    "nerf":{
+      "D": 4,
+      "W": 32,
+      "skips":[2]
+    },
+  
+    "network_name": "deepsdf_decoder_cnp",
+    "network_specs": {
+      "dims": [
+        64
+      ],
+      "dropout": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "dropout_prob": 0.2,
+      "norm_layers": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "latent_in": [
+      ],
+      "weight_norm": true
+    },
+    "encoder_name": "cnp_encoder",
+    "encoder_specs": {
+      "per_point_feat": [
+        6,
+        32,
+        64,
+        64
+      ],
+      "bn": {
+        "class": "BatchNorm"
+      },
+      "aggr_mode": "mean",
+      "latent_size": 32
+    },
+    "snapshot_frequency": 100,
+    "additional_snapshots": [
+      10,
+      30,
+      50,
+      100
+    ],
+    "enforce_minmax": true,
+    "clamping_distance": 0.2,
+    "gradient_clip_norm": null,
+    "min_context_points": 16,
+    "training_loss": {
+      "types": [
+        "neg_log_likelihood",
+        "reg_loss"
+      ],
+      "enforce_minmax": true,
+      "clamping_distance": 0.2,
+      "code_reg_lambda": 0.01
+    }
+  }
+  
