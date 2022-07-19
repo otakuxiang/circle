@@ -1,4 +1,4 @@
-# DI-Fusion
+# CIRCLE
 
 This repository contains the implementation of our ECCV 2022 paper: CIRCLE: Convolutional Implicit Reconstruction and Completion for Large-scale Indoor Scene.
 
