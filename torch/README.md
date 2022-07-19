@@ -9,9 +9,9 @@ We provide tools to generate incomplete scenes from MatterPort3d
 ```
 python sample_matterport.py <train/val/test> <sample_rate>
 python add_noise.py <train/val/test> <sample_rate> <noise_sigma>
-python crop_small <train/val/test> <sample_rate> <noise_sigma> 
+python crop_small.py <train/val/test> <sample_rate> <noise_sigma> 
 ```
-
+For training data all three step is needed, for test and validation, we just run first two step.
 ### Train the network
 Once the dataset is generated, run the following script to start training. 
 ```
@@ -20,7 +20,7 @@ python train.py <EXPERIMENT_NAME>
 Path to dataset and config file could be modified in train.py manualy.
 
 ## Test
-To test the model, we provide code for MatterPort3D dataset.
+To test the model, we provide code and [weight](https://drive.google.com/file/d/12N0hlYbJFF4wiJGqVeSRxVaOWimr1fp9/view?usp=sharing) for MatterPort3D dataset.
 ```
 python run_matterport.py <EXPERIMENT_NAME> <CHECKPOINT_ITER> <MATTERPORT_SCENE> <MATTERPORT_REGION>
 ``` 

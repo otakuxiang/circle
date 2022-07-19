@@ -7,3 +7,4 @@ torch/runs
 torch/run_sceneNN.py
 torch/dr_sceneNN.py
 torch/pre-trained-weight
+.vscode
