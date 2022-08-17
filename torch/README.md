@@ -1,7 +1,11 @@
 # CIRCLE
 
 ## Dependency 
-
+- CUDA == 10.2 or 11.1 (we only run it on CUDA 10.2 and CUDA 11.1 but it should works for any version of CUDA 10 or CUDA 11)
+- torch >= 1.7.1 
+- [SparseConvNet](https://github.com/facebookresearch/SparseConvNet)
+- open3d == 0.14.1
+- python >= 3.7
 ## Training
 The network is trained on [MatterPort3d](https://niessner.github.io/Matterport/)
 ### Data
