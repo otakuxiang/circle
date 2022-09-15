@@ -115,8 +115,7 @@ def get_inputs(scene,region):
             for k in range(0,4):
                 pose[idx,k] = float(ss[k])
         f.close()
-        # pose = np.linalg.inv(pose)
-        pose = add_translate_noise(pose,0.03)
+        # pose = add_translate_noise(pose,0.03)
         # pose = add_rotate_noise(pose)
         f = open(os.path.join(intri_path,tripod_number+"_intrinsics_"+camera_id+".txt"))
         p = np.zeros((4))

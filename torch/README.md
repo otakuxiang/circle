@@ -16,6 +16,7 @@ python add_noise.py <train/val/test> <sample_rate> <noise_sigma>
 python crop_small.py <train/val/test> <sample_rate> <noise_sigma> 
 ```
 For training data all three step is needed, for test and validation, we just run first two step.
+In paper, the sample_rate and the noise_sigma is 0.5 and 0.01, and the provided pretrained model is trained with same setting.
 ### Train the network
 Once the dataset is generated, run the following script to start training. 
 ```
