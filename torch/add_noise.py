@@ -90,7 +90,9 @@ def add_noise(scene,region,noise_sigma):
 
 noise_sigma = float(sys.argv[3])
 nname = int(noise_sigma * 1000)
+# the original matterport3D dataset location, should cotains v1 folder
 src_root = f"/home/chx/data_disk/MatterPort3D/"
+# the sampled matterport3d location
 tar_root = f"/home/chx/nas/disk_0/matterport_result/{sys.argv[1]}/"
 random_ratio = float(sys.argv[2])
 rname = int(random_ratio * 100)
@@ -98,6 +100,7 @@ rname = int(random_ratio * 100)
 f = open(os.path.join(src_root,f"scenes_{sys.argv[1]}.txt"))
 scene_dirs = [line.strip() for line in f]
 f.close()
+# the folder which contains noisy pointclouds of the whole room
 result_root = "/home/chx/ssd/chx_data/MatterPort/"
 all_task = []
 for scene in scene_dirs:

@@ -21,17 +21,16 @@ class NoisyOtherMatterPortDataset(data.Dataset):
         self.snum = snum
         for scan in train_list:
             scan_dir = os.path.join(self.data_root,scan)
-            result_folder = os.path.join(scan_dir,"small_scene_noisy")
-            meshs = os.listdir(result_folder)
+            meshs = os.listdir(scan_dir)
             mesh_num = len(meshs)
             c = mesh_num
             for i in range(c - 1,0,-1):
-                if os.path.exists(os.path.join(result_folder,f"mesh_{i}.ply")):
+                if os.path.exists(os.path.join(scan_dir,f"mesh_{i}.ply")):
                     break
                 else:
                     mesh_num = mesh_num - 1
-            self.mesh_list += [os.path.join(result_folder,f"mesh_{i}.ply") for i in range(mesh_num)]
-            self.pcd_list += [os.path.join(result_folder,f"pcd_{i}.ply") for i in range(mesh_num)]
+            self.mesh_list += [os.path.join(scan_dir,f"mesh_{i}.ply") for i in range(mesh_num)]
+            self.pcd_list += [os.path.join(scan_dir,f"pcd_{i}.ply") for i in range(mesh_num)]
 
         print(len(self.mesh_list))
     def __len__(self):

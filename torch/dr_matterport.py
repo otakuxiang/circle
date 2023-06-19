@@ -9,8 +9,8 @@ from utils.net_util import StepLearningRateSchedule,adjust_learning_rate
 from network.diff_renderer import diff_renderer
 import structure.octree.unet_oct as oct
 import math
-
-data_dir = "/home/chx/data_disk/MatterPort3d"
+from pycg import vis
+data_dir = "/home/chx/data_disk/MatterPort3D"
 
 def add_translate_noise(pose,std = 0.02):
     t_rand = np.random.normal(0, 1, size=[3]).astype(np.float32) * std
@@ -85,10 +85,11 @@ def get_optimizer(opt_left,opt_pose,octree,dRs,dts):
 def get_inputs(scene,region):
     
     sequence_path = os.path.join(data_dir,"v1/scans",scene)
-    region_path = os.path.join(data_dir,"v1/data_pro",scene,region)
-    f_file = open(os.path.join(region_path,"frame_list.txt"))
+    # region_path = os.path.join(data_dir,"v1/data_pro",scene,region)
+    region_path = "/home/chx/data_disk/1LXtFkjw3qL_region0/1LXtFkjw3qL_region0"
+    f_file = open(os.path.join(region_path,"frame_list_70.txt"))
     frame_list = [line.strip().split(" ") for line in f_file]
-    depth_path = os.path.join(region_path,"depth")
+    depth_path = os.path.join(region_path,"depth_noise_70_10")
     pose_path = os.path.join(sequence_path,"matterport_camera_poses")
     intri_path = os.path.join(sequence_path,"matterport_camera_intrinsics")
 
@@ -144,13 +145,15 @@ def get_inputs(scene,region):
         part_pcd.remove_radius_outlier(16,0.05)
         part_pcd.estimate_normals()
         part_pcd.orient_normals_towards_camera_location(np.zeros([3,1]))
-        part_pcd = part_pcd.remove_none_finite_points()
+        part_pcd = part_pcd.remove_non_finite_points()
         point_parts.append(o3d.geometry.PointCloud(part_pcd))
         poses.append(pose.squeeze(0).cpu().numpy())
         pcd = part_pcd.transform(pose.squeeze(0).cpu().numpy())
         final_pcd += pcd
-        final_pcd = final_pcd.voxel_down_sample(0.01)  
-    final_pcd = final_pcd.remove_none_finite_points()
+    final_pcd = final_pcd.voxel_down_sample(0.01)  
+    final_pcd = final_pcd.remove_non_finite_points()
+    # final_pcd.estimate_normals()
+    # vis.show_3d([final_pcd])
     o3d.io.write_point_cloud(os.path.join(result_path,"temp.ply"),final_pcd)
     ray_ods = torch.cat(ray_ods)
     targets = torch.cat(targets)
@@ -182,7 +185,7 @@ def update_octree(octree,pcd,result_path):
         octree.bound_min = min_bound
         octree.update_lowest(points,normals)
         octree.update_right_corner()
-        mesh = octree.extract_whole_mesh_corner(6,use_rgb = False,max_n_triangles = 2 ** 23)
+        mesh = octree.extract_whole_mesh_corner(6,use_rgb = False,max_n_triangles = 2 ** 24)
         mesh = mesh.merge_close_vertices(0.001)
         mesh = mesh.remove_degenerate_triangles()
         mesh.compute_vertex_normals()
@@ -193,7 +196,9 @@ def update_octree(octree,pcd,result_path):
 
 scene = sys.argv[1]
 region = sys.argv[2]
-result_path = os.path.join(data_dir,"result",scene,region)
+# result_path = os.path.join(data_dir,"result",scene,region)
+result_path = os.path.join("./")
+
 os.makedirs(result_path,exist_ok=True)
 
 h,w = 512,640
@@ -217,6 +222,7 @@ dts = []
 for i in range(len(point_parts)):
     dRs.append(geoopt.ManifoldTensor(torch.eye(3,device = main_device),manifold=geoopt.Stiefel()).requires_grad_())
     dts.append(torch.zeros(1,3).to(main_device).requires_grad_())
+
 points=torch.from_numpy(np.asarray(final_pcd.points)).to(main_device).float()
 min_bound = torch.min(points,dim = 0)[0] - 0.5 * voxel_size
 bound = (final_pcd.get_max_bound() - final_pcd.get_min_bound())
@@ -227,6 +233,7 @@ with torch.no_grad():
     octree.update_lowest(points,normals)
     octree.update_right_corner()
     mesh = octree.extract_whole_mesh_corner(6,use_rgb = False,max_n_triangles = 2 ** 23)
+    # vis.show_3d(mesh)
     mesh = mesh.merge_close_vertices(0.001)
     mesh = mesh.remove_degenerate_triangles()
     mesh.compute_vertex_normals()

@@ -50,9 +50,10 @@ if __name__ == '__main__':
     checkpoint_dir = Path("./pre-trained-weight/"+exp)
     os.makedirs(checkpoint_dir,exist_ok = True)
     shutil.copy("./train.py",os.path.join(checkpoint_dir,"train.py"))
+    # the original matterport3d folder (downloaded version) which contains the official train/val/test split files 
     f = open("/home/chx/data_disk/MatterPort3D/scenes_train.txt")
     scenes = [line.strip() for line in f]
-
+    # the croped dataset folder, should be same as result_root in crop_small.py  
     train_dataset = NoisyOtherMatterPortDataset("/home/chx/ssd/MatterPort3d/",scenes,expand=True,voxel_size = voxel_size,snum = snum,layer = layer)
     
     train_dataLoader = torch.utils.data.DataLoader(train_dataset,num_workers = 12,batch_size = 1,shuffle = True)

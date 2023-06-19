@@ -72,6 +72,7 @@ src_root = "/home/chx/data_disk/MatterPort3D/"
 whole_pcd_root = f"/home/chx/ssd/chx_data/MatterPort"
 random_ratio = float(sys.argv[2])
 rname = int(random_ratio * 100)
+# the cropped rooms for training, used in train.py
 result_root = f"/home/chx/data_disk/MatterPort3D/small_{rname}_{nname}/"
 os.makedirs(result_root,exist_ok=True)
 f = open(os.path.join(src_root,f"scenes_{sys.argv[1]}.txt"))

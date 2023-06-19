@@ -164,7 +164,9 @@ import shutil
 
 random_ratio = float(sys.argv[2])
 rname = int(random_ratio * 100)
+# the original matterport3D dataset location, should cotains v1 folder
 src_root = f"/home/chx/data_disk/MatterPort3D/"
+# the target sampled matterport3d location
 tar_root = f"/home/chx/nas/disk_0/matterport_result/{sys.argv[1]}/"
 
 file_path= os.path.join(src_root,"v1/scans")
