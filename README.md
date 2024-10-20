@@ -11,3 +11,8 @@ CIRCLE is a framework for large-scale scene completion and geometric refinement 
 
 We now provide implementation based on Pytorch and we will soon provide jittor version which is faster for training.
 Please refer to the corresponding folders `jittor/` and `pytorch/` for specific build and running instructions.
+
+
+## Citation
+If you find this reposity is useful, please cite our paper:
+Haoxiang Chen, Jiahui Huang, Tai-Jiang Mu, Shi-Min Hu: CIRCLE: Convolutional Implicit Reconstruction and Completion for Large-Scale Indoor Scene. ECCV (32) 2022: 506-522
